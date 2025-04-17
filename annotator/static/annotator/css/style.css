@@ -1,0 +1,19 @@
+/* In your base.html <style> block or linked style.css */
+.pdf-page-container {
+    position: relative; /* ESSENTIAL for absolute positioning of children */
+    margin-bottom: 1rem;
+    border: 1px solid #ccc;
+    display: inline-block;
+    background-color: #eee;
+}
+
+/* Optional: Ensure feedback mark is visible */
+.feedback-annotation-mark { /* Add a class for easier selection/styling */
+    position: absolute;
+    border-radius: 50%;
+    pointer-events: none; /* Make it non-interactive */
+    text-align: center;
+    font-size: 12px; /* Or adjust */
+    z-index: 10; /* Make sure it's on top */
+    /* Background colors/text set by JS */
+}

@@ -1,0 +1,13 @@
+{% extends 'annotator/base.html' %}
+
+{% block title %}Upload PDF{% endblock %}
+
+{% block content %}
+<h2>Upload PDF for Annotation</h2>
+<hr>
+<form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button type="submit" class="btn btn-primary">Upload and Annotate</button>
+</form>
+{% endblock %}

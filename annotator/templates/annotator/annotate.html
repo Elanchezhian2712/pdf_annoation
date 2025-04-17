@@ -1,0 +1,195 @@
+{% extends 'annotator/base.html' %}
+{% load static %}
+
+{% block title %}Annotate PDF{% endblock %}
+
+{% block content %}
+<!-- ... (rest of the controls HTML) ... -->
+{% csrf_token %}
+<h2>Annotate PDF</h2>
+<hr>
+
+<div class="annotation-controls sticky-top bg-light p-3 border rounded mb-3">
+    <div class="d-flex justify-content-between align-items-center">
+        <div>
+            <button id="tool-tick" class="btn btn-light annotation-button" data-type="tick">✅</button>
+            <button id="tool-blue_mark" class="btn btn-light annotation-button" data-type="blue_mark">🔵</button>
+            <button id="tool-cross" class="btn btn-light annotation-button" data-type="cross">❌</button>
+            <span class="ms-3 fst-italic text-muted" id="current-tool-info">Select a tool</span>
+        </div>
+        <div class="annotation-counts">
+            <span>✅ Ticks: <span id="count-tick">{{ counts.tick|default:0 }}</span></span>
+            <span>🔵 Blue Marks: <span id="count-blue_mark">{{ counts.blue_mark|default:0 }}</span></span>
+            <span>❌ Crosses: <span id="count-cross">{{ counts.cross|default:0 }}</span></span>
+        </div>
+        <div>
+            <a href="{% url 'download_pdf' %}" class="btn btn-success" id="download-btn">Download Annotated PDF</a>
+            <a href="{% url 'upload_pdf' %}" class="btn btn-secondary ms-2">Upload New PDF</a>
+        </div>
+    </div>
+</div>
+
+<!-- ... (rest of the controls HTML) ... -->
+<div id="pdf-viewer" class="text-center">
+    <p>Loading PDF pages...</p>
+    {% for image_url in page_image_urls %}
+    <div class="pdf-page-container" data-page-num="{{ forloop.counter0 }}">
+        <img src="{{ image_url }}"
+             class="pdf-page-image shadow-sm"
+             alt="PDF Page {{ forloop.counter }}"
+             id="page-{{ forloop.counter0 }}">
+        <!-- Feedback annotations will be added here by JS -->
+    </div>
+    {% empty %}
+    <p class="text-danger">Could not load PDF pages. Please try uploading again.</p>
+    {% endfor %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // --- Tool selection and CSRF token code (remains the same) ---
+    let currentTool = null;
+    const toolButtons = document.querySelectorAll('.annotation-button');
+    const toolInfo = document.getElementById('current-tool-info');
+    const pageContainers = document.querySelectorAll('.pdf-page-container');
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+
+    toolButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            toolButtons.forEach(btn => btn.classList.remove('active'));
+            this.classList.add('active');
+            currentTool = this.getAttribute('data-type');
+            toolInfo.textContent = `Selected: ${this.textContent}`;
+        });
+    });
+    // --- End Tool selection ---
+
+
+    pageContainers.forEach(container => {
+        const pageNum = container.getAttribute('data-page-num');
+        const pageImage = container.querySelector('.pdf-page-image');
+
+        const setupClickListener = () => {
+             console.log(`Image ${pageNum} ready for clicks.`);
+
+            pageImage.addEventListener('click', function(event) {
+                if (!currentTool) {
+                    alert('Please select an annotation tool first!');
+                    return;
+                }
+
+                // --- Get Coordinates Relative to Element ---
+                // Use offsetX/Y as primary, fallback if needed
+                const rect = pageImage.getBoundingClientRect();
+                const clickXRelElement = event.offsetX ?? (event.clientX - rect.left);
+                const clickYRelElement = event.offsetY ?? (event.clientY - rect.top);
+
+                // --- Get Image Dimensions ---
+                const naturalWidth = pageImage.naturalWidth;
+                const naturalHeight = pageImage.naturalHeight;
+                const elementWidth = rect.width; // Current rendered width
+                const elementHeight = rect.height; // Current rendered height
+
+                if (naturalWidth === 0 || naturalHeight === 0 || elementWidth === 0 || elementHeight === 0) {
+                    console.error("Cannot annotate: Image dimensions invalid.", {naturalW: naturalWidth, naturalH: naturalHeight, elementW: elementWidth, elementH: elementHeight});
+                    alert("Cannot place annotation, image size invalid.");
+                    return;
+                }
+
+                // --- Calculate Coordinates for BACKEND (relative to natural size) ---
+                // This remains the same and is crucial for PDF accuracy
+                const imgX_natural = (clickXRelElement / elementWidth) * naturalWidth;
+                const imgY_natural = (clickYRelElement / elementHeight) * naturalHeight;
+
+                // --- Calculate Coordinates for FRONTEND FEEDBACK (as percentages) ---
+                const clickXPct = (clickXRelElement / elementWidth) * 100;
+                const clickYPct = (clickYRelElement / elementHeight) * 100;
+
+
+                console.log(`Page ${pageNum} Click: RelElement=(${clickXRelElement.toFixed(1)}, ${clickYRelElement.toFixed(1)}), ` +
+                            `Natural=(${imgX_natural.toFixed(1)}, ${imgY_natural.toFixed(1)}), ` +
+                            `Percent=(${clickXPct.toFixed(2)}%, ${clickYPct.toFixed(2)}%)`);
+
+
+                // --- Send Annotation Data via AJAX ---
+                // Send the NATURAL coordinates to the backend
+                fetch("{% url 'add_annotation' %}", {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: JSON.stringify({
+                        page_num: parseInt(pageNum),
+                        x: imgX_natural, // Use natural coords for backend
+                        y: imgY_natural,
+                        type: currentTool
+                    })
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        return response.json().then(err => { throw new Error(err.message || `HTTP ${response.status}`); });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Annotation response:', data);
+                     if (data.status === 'ok') {
+                        // Update counts (same as before)
+                        document.getElementById('count-tick').textContent = data.counts.tick;
+                        document.getElementById('count-blue_mark').textContent = data.counts.blue_mark;
+                        document.getElementById('count-cross').textContent = data.counts.cross;
+
+                        // --- Add visual feedback marker using PERCENTAGES ---
+                        try {
+                            const feedbackMark = document.createElement('div');
+                            feedbackMark.classList.add('feedback-annotation-mark');
+
+                            // --- KEY CHANGE: Set position using percentages ---
+                            feedbackMark.style.left = `${clickXPct}%`;
+                            feedbackMark.style.top = `${clickYPct}%`;
+                            // The CSS transform: translate(-50%, -50%) will handle centering
+
+                            // Set content/style based on tool (same as before)
+                             if (currentTool === 'tick') {
+                                feedbackMark.textContent = '✅';
+                                feedbackMark.style.backgroundColor = 'rgba(0, 255, 0, 0.3)';
+                            } else if (currentTool === 'cross') {
+                                feedbackMark.textContent = '❌';
+                                feedbackMark.style.backgroundColor = 'rgba(255, 0, 0, 0.3)';
+                            } else if (currentTool === 'blue_mark') {
+                                feedbackMark.textContent = '🔵';
+                                feedbackMark.style.backgroundColor = 'rgba(0, 0, 255, 0.3)';
+                            }
+
+                            container.appendChild(feedbackMark);
+                            console.log(`  Feedback Mark placed at Left/Top: ${feedbackMark.style.left} / ${feedbackMark.style.top} (Centered via CSS transform)`);
+
+                        } catch (e) {
+                            console.error("Error creating/appending feedback mark:", e);
+                        }
+                    } else {
+                         alert('Error adding annotation: ' + (data.message || 'Unknown error'));
+                    }
+                })
+                .catch(error => {
+                     console.error('Error during fetch or processing:', error);
+                     alert('Failed to add annotation: ' + error.message);
+                });
+            }); // End addEventListener
+        }; // End setupClickListener
+
+        // Image load handling (same as before)
+        pageImage.onload = setupClickListener;
+        if (pageImage.complete && pageImage.naturalWidth > 0) {
+             setTimeout(setupClickListener, 0);
+        } else if (pageImage.complete && pageImage.naturalWidth === 0) {
+            console.error(`Image ${pageNum} loaded but has 0 natural width.`);
+        }
+
+    }); // End pageContainers.forEach
+}); // End DOMContentLoaded
+</script>
+{% endblock %}
