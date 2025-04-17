@@ -1,0 +1,57 @@
+# Python virtual environments
+env/
+venv/
+.venv/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Django stuff
+*.log
+*.pot
+*.pyc
+*.sqlite3
+db.sqlite3
+media/
+staticfiles/
+local_settings.py
+
+# VS Code
+.vscode/
+
+# Mac OS
+.DS_Store
+
+# PyCharm
+.idea/
+
+# Environment variable files
+.env
+.env.*
+
+# Migrations (optional — only if you want to ignore them)
+# **/migrations/
+
+# Coverage reports
+htmlcov/
+.coverage
+.tox/
+nosetests.xml
+coverage.xml
+*.cover
+
+# mypy
+.mypy_cache/
+
+# pytest
+.pytest_cache/
+
+# Build files
+build/
+dist/
+*.egg-info/
+
+# Node
+node_modules/
