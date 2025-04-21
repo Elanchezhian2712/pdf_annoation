@@ -12,16 +12,40 @@
 <div class="annotation-controls sticky-top bg-light p-3 border rounded mb-3">
     <div class="d-flex justify-content-between align-items-center">
         <div>
-            <button id="tool-tick" class="btn btn-light annotation-button" data-type="tick">✅</button>
-            <button id="tool-blue_mark" class="btn btn-light annotation-button" data-type="blue_mark">🔵</button>
-            <button id="tool-cross" class="btn btn-light annotation-button" data-type="cross">❌</button>
-            <span class="ms-3 fst-italic text-muted" id="current-tool-info">Select a tool</span>
+
+            {% comment %} <span class="ms-3 fst-italic text-muted" id="current-tool-info">Select a tool</span> {% endcomment %}
+            <button id="tool-tick" class="btn btn-light annotation-button" data-type="tick">
+                <img src="/static/annotator/img/tick.png" alt="tick" style="width: 20px; height: 20px;">
+            </button>
+            
+            <button id="tool-blue_mark" class="btn btn-light annotation-button" data-type="blue_mark">
+                <img src="/static/annotator/img/blue_mark.png" alt="blue mark" style="width: 20px; height: 20px;">
+            </button>
+            
+            <button id="tool-cross" class="btn btn-light annotation-button" data-type="cross">
+                <img src="/static/annotator/img/cross.png" alt="cross" style="width: 20px; height: 20px;">
+            </button>
+            
+           
         </div>
+        
         <div class="annotation-counts">
-            <span>✅ Ticks: <span id="count-tick">{{ counts.tick|default:0 }}</span></span>
-            <span>🔵 Blue Marks: <span id="count-blue_mark">{{ counts.blue_mark|default:0 }}</span></span>
-            <span>❌ Crosses: <span id="count-cross">{{ counts.cross|default:0 }}</span></span>
+            <span>
+                <img src="/static/annotator/img/tick.png" alt="tick" style="width: 20px; height: 20px;"> 
+                Ticks: <span id="count-tick">{{ counts.tick|default:0 }}</span>
+            </span>            
+            
+            <span>
+                <img src="/static/annotator/img/blue_mark.png" alt="blue mark" style="width: 20px; height: 20px;"> 
+                Blue Marks: <span id="count-blue_mark">{{ counts.blue_mark|default:0 }}</span>
+            </span>
+            
+            <span>
+                <img src="/static/annotator/img/cross.png" alt="cross" style="width: 20px; height: 20px;"> 
+                Crosses: <span id="count-cross">{{ counts.cross|default:0 }}</span>
+            </span>
         </div>
+        
         <div>
             <a href="{% url 'download_pdf' %}" class="btn btn-success" id="download-btn">Download Annotated PDF</a>
             <a href="{% url 'upload_pdf' %}" class="btn btn-secondary ms-2">Upload New PDF</a>
@@ -153,17 +177,14 @@ document.addEventListener('DOMContentLoaded', function() {
                             // The CSS transform: translate(-50%, -50%) will handle centering
 
                             // Set content/style based on tool (same as before)
-                             if (currentTool === 'tick') {
-                                feedbackMark.textContent = '✅';
-                                feedbackMark.style.backgroundColor = 'rgba(0, 255, 0, 0.3)';
+                            if (currentTool === 'tick') {
+                                feedbackMark.innerHTML = '<img src="/static/annotator/img/tick.png" alt="tick" style="width: 20px; height: 20px;">';
                             } else if (currentTool === 'cross') {
-                                feedbackMark.textContent = '❌';
-                                feedbackMark.style.backgroundColor = 'rgba(255, 0, 0, 0.3)';
+                                feedbackMark.innerHTML = '<img src="/static/annotator/img/cross.png" alt="tick" style="width: 20px; height: 20px;">'; 
                             } else if (currentTool === 'blue_mark') {
-                                feedbackMark.textContent = '🔵';
-                                feedbackMark.style.backgroundColor = 'rgba(0, 0, 255, 0.3)';
+                                feedbackMark.innerHTML = '<img src="/static/annotator/img/blue_mark.png" alt="tick" style="width: 20px; height: 20px;">'; 
                             }
-
+                            
                             container.appendChild(feedbackMark);
                             console.log(`  Feedback Mark placed at Left/Top: ${feedbackMark.style.left} / ${feedbackMark.style.top} (Centered via CSS transform)`);
 
