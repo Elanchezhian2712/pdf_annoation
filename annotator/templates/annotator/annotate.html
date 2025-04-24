@@ -1,51 +1,42 @@
+<!-- templates/annotator/annotate.html -->
 {% extends 'annotator/base.html' %}
 {% load static %}
 
 {% block title %}Annotate PDF{% endblock %}
 
 {% block content %}
-<!-- ... (rest of the controls HTML) ... -->
 {% csrf_token %}
 <h2>Annotate PDF</h2>
 <hr>
 
+<!-- Annotation Controls Div -->
 <div class="annotation-controls sticky-top bg-light p-3 border rounded mb-3">
     <div class="d-flex justify-content-between align-items-center">
         <div>
-
-            {% comment %} <span class="ms-3 fst-italic text-muted" id="current-tool-info">Select a tool</span> {% endcomment %}
-            <button id="tool-tick" class="btn btn-light annotation-button" data-type="tick">
-                <img src="/static/annotator/img/tick.png" alt="tick" style="width: 20px; height: 20px;">
+            <button id="tool-tick" class="btn btn-light annotation-button" data-type="tick" title="Tick Tool (Click existing tick to remove)">
+                <img src="{% static 'annotator/img/tick.png' %}" alt="tick" style="width: 20px; height: 20px;">
             </button>
-            
-            <button id="tool-blue_mark" class="btn btn-light annotation-button" data-type="blue_mark">
-                <img src="/static/annotator/img/blue_mark.png" alt="blue mark" style="width: 20px; height: 20px;">
+            <button id="tool-blue_mark" class="btn btn-light annotation-button" data-type="blue_mark" title="Blue Mark Tool">
+                <img src="{% static 'annotator/img/blue_mark.png' %}" alt="blue mark" style="width: 20px; height: 20px;">
             </button>
-            
-            <button id="tool-cross" class="btn btn-light annotation-button" data-type="cross">
-                <img src="/static/annotator/img/cross.png" alt="cross" style="width: 20px; height: 20px;">
+            <button id="tool-cross" class="btn btn-light annotation-button" data-type="cross" title="Cross Tool">
+                <img src="{% static 'annotator/img/cross.png' %}" alt="cross" style="width: 20px; height: 20px;">
             </button>
-            
-           
         </div>
-        
         <div class="annotation-counts">
             <span>
-                <img src="/static/annotator/img/tick.png" alt="tick" style="width: 20px; height: 20px;"> 
+                <img src="{% static 'annotator/img/tick.png' %}" alt="tick" style="width: 16px; height: 16px; vertical-align: middle;">
                 Ticks: <span id="count-tick">{{ counts.tick|default:0 }}</span>
-            </span>            
-            
-            <span>
-                <img src="/static/annotator/img/blue_mark.png" alt="blue mark" style="width: 20px; height: 20px;"> 
+            </span>
+             <span class="ms-3">
+                <img src="{% static 'annotator/img/blue_mark.png' %}" alt="blue mark" style="width: 16px; height: 16px; vertical-align: middle;">
                 Blue Marks: <span id="count-blue_mark">{{ counts.blue_mark|default:0 }}</span>
             </span>
-            
-            <span>
-                <img src="/static/annotator/img/cross.png" alt="cross" style="width: 20px; height: 20px;"> 
+            <span class="ms-3">
+                <img src="{% static 'annotator/img/cross.png' %}" alt="cross" style="width: 16px; height: 16px; vertical-align: middle;">
                 Crosses: <span id="count-cross">{{ counts.cross|default:0 }}</span>
             </span>
         </div>
-        
         <div>
             <a href="{% url 'download_pdf' %}" class="btn btn-success" id="download-btn">Download Annotated PDF</a>
             <a href="{% url 'upload_pdf' %}" class="btn btn-secondary ms-2">Upload New PDF</a>
@@ -53,164 +44,523 @@
     </div>
 </div>
 
-<!-- ... (rest of the controls HTML) ... -->
-<div id="pdf-viewer" class="text-center">
-    <p>Loading PDF pages...</p>
+<!-- PDF Viewer Div -->
+<div id="pdf-viewer" class="text-center  py-3"> {# Added background for contrast #}
     {% for image_url in page_image_urls %}
-    <div class="pdf-page-container" data-page-num="{{ forloop.counter0 }}">
+    <div class="pdf-page-container shadow mb-4 bg-white" data-page-num="{{ forloop.counter0 }}"> {# Added spacing and background #}
         <img src="{{ image_url }}"
-             class="pdf-page-image shadow-sm"
+             class="pdf-page-image" {# Removed shadow-sm, container has shadow #}
              alt="PDF Page {{ forloop.counter }}"
-             id="page-{{ forloop.counter0 }}">
+             id="page-{{ forloop.counter0 }}"
+             style="border: 1px solid #ddd;"> {# Added subtle border to image #}
         <!-- Feedback annotations will be added here by JS -->
     </div>
     {% empty %}
     <p class="text-danger">Could not load PDF pages. Please try uploading again.</p>
     {% endfor %}
 </div>
+
+<!-- Holds initial annotation data passed from the backend view -->
+<script id="initial-annotations-data" type="application/json">
+    {{ annotations_json|safe|default:'[]' }}
+</script>
+
 {% endblock %}
 
 {% block extra_js %}
+{# The ENTIRE JavaScript code from Step 3 goes here #}
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    // --- Tool selection and CSRF token code (remains the same) ---
-    let currentTool = null;
-    const toolButtons = document.querySelectorAll('.annotation-button');
-    const toolInfo = document.getElementById('current-tool-info');
-    const pageContainers = document.querySelectorAll('.pdf-page-container');
-    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
-
-    toolButtons.forEach(button => {
-        button.addEventListener('click', function() {
-            toolButtons.forEach(btn => btn.classList.remove('active'));
-            this.classList.add('active');
-            currentTool = this.getAttribute('data-type');
-            toolInfo.textContent = `Selected: ${this.textContent}`;
+    document.addEventListener('DOMContentLoaded', function() {
+        // --- Global State & Constants ---
+        let currentTool = null;
+        const toolButtons = document.querySelectorAll('.annotation-button');
+        const pageContainers = document.querySelectorAll('.pdf-page-container');
+        const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+    
+        // Zoom Constants
+        const MIN_ZOOM = 0.25;
+        const MAX_ZOOM = 8.0;
+        const ZOOM_SENSITIVITY = 0.004; // Sensitivity multiplier
+        // Pan Constant
+        const PAN_STEP = 30; // Pixels to move with each arrow key press
+    
+        // --- Tool Selection Logic ---
+        toolButtons.forEach(button => {
+            button.addEventListener('click', function() {
+                const buttonType = this.getAttribute('data-type');
+                if (this.classList.contains('active')) {
+                    // Deselecting the current tool by clicking it again
+                    this.classList.remove('active');
+                    currentTool = null;
+                    pageContainers.forEach(container => {
+                        container.style.cursor = 'default'; // Set default cursor
+                        const img = container.querySelector('.pdf-page-image');
+                        if(img) img.style.cursor = 'default';
+                    });
+                    console.log("Tool deselected.");
+                } else {
+                    // Selecting a new tool (or the first tool)
+                    toolButtons.forEach(btn => btn.classList.remove('active')); // Deselect others
+                    this.classList.add('active'); // Select this one
+                    currentTool = buttonType;
+                    pageContainers.forEach(container => {
+                        container.style.cursor = 'crosshair'; // Set annotation cursor
+                        const img = container.querySelector('.pdf-page-image');
+                        if(img) img.style.cursor = 'crosshair';
+                    });
+                    console.log(`Tool selected: ${currentTool}`);
+                }
+            });
         });
-    });
-    // --- End Tool selection ---
-
-
-    pageContainers.forEach(container => {
-        const pageNum = container.getAttribute('data-page-num');
-        const pageImage = container.querySelector('.pdf-page-image');
-
-        const setupClickListener = () => {
-             console.log(`Image ${pageNum} ready for clicks.`);
-
-            pageImage.addEventListener('click', function(event) {
-                if (!currentTool) {
-                    alert('Please select an annotation tool first!');
-                    return;
+    
+    
+        // --- Standalone Helper Functions ---
+    
+        // Updates ALL marker positions on a given container based on its current dataset state
+        function updateMarkerPositions(containerEl) {
+            // Read current view state for this container
+            const currentZoom = parseFloat(containerEl.dataset.zoom || 1.0);
+            const currentPanX = parseFloat(containerEl.dataset.panX || 0);
+            const currentPanY = parseFloat(containerEl.dataset.panY || 0);
+    
+            // Find all markers within this container
+            const markers = containerEl.querySelectorAll('.feedback-annotation-mark');
+    
+            markers.forEach(marker => {
+                // Get the stored natural coordinates from the marker's dataset
+                const naturalX = parseFloat(marker.dataset.naturalX);
+                const naturalY = parseFloat(marker.dataset.naturalY);
+    
+                // Check if coordinates are valid numbers
+                if (!isNaN(naturalX) && !isNaN(naturalY)) {
+                    // Calculate the new top-left pixel position relative to the container
+                    const markerLeftPx = currentPanX + (naturalX * currentZoom);
+                    const markerTopPx = currentPanY + (naturalY * currentZoom);
+    
+                    // Apply the new position styles
+                    marker.style.left = `${markerLeftPx}px`;
+                    marker.style.top = `${markerTopPx}px`;
+                } else {
+                    // Log a warning if a marker is missing coordinate data
+                    console.warn("Marker found without valid natural coordinates in dataset:", marker);
                 }
-
-                // --- Get Coordinates Relative to Element ---
-                // Use offsetX/Y as primary, fallback if needed
-                const rect = pageImage.getBoundingClientRect();
-                const clickXRelElement = event.offsetX ?? (event.clientX - rect.left);
-                const clickYRelElement = event.offsetY ?? (event.clientY - rect.top);
-
-                // --- Get Image Dimensions ---
-                const naturalWidth = pageImage.naturalWidth;
-                const naturalHeight = pageImage.naturalHeight;
-                const elementWidth = rect.width; // Current rendered width
-                const elementHeight = rect.height; // Current rendered height
-
-                if (naturalWidth === 0 || naturalHeight === 0 || elementWidth === 0 || elementHeight === 0) {
-                    console.error("Cannot annotate: Image dimensions invalid.", {naturalW: naturalWidth, naturalH: naturalHeight, elementW: elementWidth, elementH: elementHeight});
-                    alert("Cannot place annotation, image size invalid.");
-                    return;
-                }
-
-                // --- Calculate Coordinates for BACKEND (relative to natural size) ---
-                // This remains the same and is crucial for PDF accuracy
-                const imgX_natural = (clickXRelElement / elementWidth) * naturalWidth;
-                const imgY_natural = (clickYRelElement / elementHeight) * naturalHeight;
-
-                // --- Calculate Coordinates for FRONTEND FEEDBACK (as percentages) ---
-                const clickXPct = (clickXRelElement / elementWidth) * 100;
-                const clickYPct = (clickYRelElement / elementHeight) * 100;
-
-
-                console.log(`Page ${pageNum} Click: RelElement=(${clickXRelElement.toFixed(1)}, ${clickYRelElement.toFixed(1)}), ` +
-                            `Natural=(${imgX_natural.toFixed(1)}, ${imgY_natural.toFixed(1)}), ` +
-                            `Percent=(${clickXPct.toFixed(2)}%, ${clickYPct.toFixed(2)}%)`);
-
-
-                // --- Send Annotation Data via AJAX ---
-                // Send the NATURAL coordinates to the backend
-                fetch("{% url 'add_annotation' %}", {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': csrfToken
-                    },
-                    body: JSON.stringify({
-                        page_num: parseInt(pageNum),
-                        x: imgX_natural, // Use natural coords for backend
-                        y: imgY_natural,
-                        type: currentTool
-                    })
-                })
-                .then(response => {
-                    if (!response.ok) {
-                        return response.json().then(err => { throw new Error(err.message || `HTTP ${response.status}`); });
-                    }
-                    return response.json();
-                })
-                .then(data => {
-                    console.log('Annotation response:', data);
-                     if (data.status === 'ok') {
-                        // Update counts (same as before)
-                        document.getElementById('count-tick').textContent = data.counts.tick;
-                        document.getElementById('count-blue_mark').textContent = data.counts.blue_mark;
-                        document.getElementById('count-cross').textContent = data.counts.cross;
-
-                        // --- Add visual feedback marker using PERCENTAGES ---
-                        try {
-                            const feedbackMark = document.createElement('div');
-                            feedbackMark.classList.add('feedback-annotation-mark');
-
-                            // --- KEY CHANGE: Set position using percentages ---
-                            feedbackMark.style.left = `${clickXPct}%`;
-                            feedbackMark.style.top = `${clickYPct}%`;
-                            // The CSS transform: translate(-50%, -50%) will handle centering
-
-                            // Set content/style based on tool (same as before)
-                            if (currentTool === 'tick') {
-                                feedbackMark.innerHTML = '<img src="/static/annotator/img/tick.png" alt="tick" style="width: 20px; height: 20px;">';
-                            } else if (currentTool === 'cross') {
-                                feedbackMark.innerHTML = '<img src="/static/annotator/img/cross.png" alt="tick" style="width: 20px; height: 20px;">'; 
-                            } else if (currentTool === 'blue_mark') {
-                                feedbackMark.innerHTML = '<img src="/static/annotator/img/blue_mark.png" alt="tick" style="width: 20px; height: 20px;">'; 
-                            }
-                            
-                            container.appendChild(feedbackMark);
-                            console.log(`  Feedback Mark placed at Left/Top: ${feedbackMark.style.left} / ${feedbackMark.style.top} (Centered via CSS transform)`);
-
-                        } catch (e) {
-                            console.error("Error creating/appending feedback mark:", e);
-                        }
-                    } else {
-                         alert('Error adding annotation: ' + (data.message || 'Unknown error'));
-                    }
-                })
-                .catch(error => {
-                     console.error('Error during fetch or processing:', error);
-                     alert('Failed to add annotation: ' + error.message);
-                });
-            }); // End addEventListener
-        }; // End setupClickListener
-
-        // Image load handling (same as before)
-        pageImage.onload = setupClickListener;
-        if (pageImage.complete && pageImage.naturalWidth > 0) {
-             setTimeout(setupClickListener, 0);
-        } else if (pageImage.complete && pageImage.naturalWidth === 0) {
-            console.error(`Image ${pageNum} loaded but has 0 natural width.`);
+            });
         }
-
-    }); // End pageContainers.forEach
-}); // End DOMContentLoaded
-</script>
-{% endblock %}
+    
+        // Applies transform, clamps pan, updates dataset, and updates markers
+        function applyClampedTransform(containerEl, targetPanX, targetPanY) {
+            const pageImage = containerEl.querySelector('.pdf-page-image');
+            const rect = containerEl.getBoundingClientRect();
+            // Read zoom from dataset, ensuring it's a number
+            const currentZoom = parseFloat(containerEl.dataset.zoom || 1.0);
+    
+            // Pre-computation checks for valid elements and dimensions
+            if (!pageImage || !pageImage.naturalWidth || !pageImage.naturalHeight || !rect.width || !rect.height) {
+                 console.warn(`applyClampedTransform skipped for page ${containerEl.dataset.pageNum}: Invalid dimensions or elements.`);
+                 // Return the un-clamped values if we can't proceed
+                 return { clampedPanX: targetPanX, clampedPanY: targetPanY };
+            }
+    
+            // Get necessary dimensions
+            const imgNatWidth = pageImage.naturalWidth;
+            const imgNatHeight = pageImage.naturalHeight;
+            const containerWidth = rect.width;
+            const containerHeight = rect.height;
+    
+            // Calculate the image's display size at the current zoom
+            const imgDispWidth = imgNatWidth * currentZoom;
+            const imgDispHeight = imgNatHeight * currentZoom;
+    
+            // Clamp Pan X: Prevent panning too far left or right
+            const maxPanX = Math.max(0, imgDispWidth - containerWidth); // Max amount image overflows right
+            const clampedPanX = Math.max(-maxPanX, Math.min(0, targetPanX)); // Limit between [-maxPanX, 0]
+    
+            // Clamp Pan Y: Prevent panning too far up or down
+            const maxPanY = Math.max(0, imgDispHeight - containerHeight); // Max amount image overflows bottom
+            const clampedPanY = Math.max(-maxPanY, Math.min(0, targetPanY)); // Limit between [-maxPanY, 0]
+    
+            // Update the container's dataset (this is the persistent state)
+            containerEl.dataset.panX = clampedPanX;
+            containerEl.dataset.panY = clampedPanY;
+            // Note: dataset.zoom is updated by the caller (zoom handler)
+    
+            // Apply the CSS transform to the image element
+            pageImage.style.transform = `translate(${clampedPanX}px, ${clampedPanY}px) scale(${currentZoom})`;
+    
+            // Update positions of all visual markers on this container
+            updateMarkerPositions(containerEl);
+    
+            // Return the actual clamped values, useful for the zoom handler
+            return { clampedPanX, clampedPanY };
+        }
+    
+        // Creates a marker DOM element based on annotation data and current view state
+        function createMarkerElement(containerEl, annotationData) {
+            // Read current view state from the container's dataset
+            const currentZoom = parseFloat(containerEl.dataset.zoom || 1.0);
+            const currentPanX = parseFloat(containerEl.dataset.panX || 0);
+            const currentPanY = parseFloat(containerEl.dataset.panY || 0);
+    
+            // Extract necessary data from the annotation object
+            const naturalX = annotationData.pdf_x; // Assuming backend sends pdf_x/y as natural coords
+            const naturalY = annotationData.pdf_y;
+            const annType = annotationData.type;
+            const annId = annotationData.id; // Expecting a unique ID from the backend
+    
+            // Validate essential data
+            if (isNaN(naturalX) || isNaN(naturalY) || !annType || !annId) {
+                 console.error("Cannot create marker: Invalid or missing annotation data fields.", annotationData);
+                 return null; // Return null if data is bad
+            }
+    
+            // Create the marker div element
+            const feedbackMark = document.createElement('div');
+            feedbackMark.classList.add('feedback-annotation-mark'); // Base class for styling
+            // Store essential data on the element's dataset for later use
+            feedbackMark.dataset.annotationId = annId;    // Unique ID for removal
+            feedbackMark.dataset.naturalX = naturalX;      // Original X coord for repositioning
+            feedbackMark.dataset.naturalY = naturalY;      // Original Y coord for repositioning
+            feedbackMark.dataset.annotationType = annType; // Type (e.g., 'tick')
+    
+            // Calculate the initial pixel position based on current view
+            const initialLeftPx = currentPanX + (naturalX * currentZoom);
+            const initialTopPx = currentPanY + (naturalY * currentZoom);
+    
+            // Apply styles for positioning (CSS should handle centering via transform)
+            feedbackMark.style.position = 'absolute'; // Essential for positioning
+            feedbackMark.style.left = `${initialLeftPx}px`;
+            feedbackMark.style.top = `${initialTopPx}px`;
+    
+            // Set the inner HTML to display the correct icon
+            const iconUrl = `/static/annotator/img/${annType}.png`; // Ensure static path is correct
+            feedbackMark.innerHTML = `<img src="${iconUrl}" alt="${annType}" style="display: block; width: 100%; height: 100%;">`; // Basic styling for image inside
+    
+            return feedbackMark; // Return the created element
+        }
+    
+    
+        // --- Initialize and Add Event Listeners for Each Page ---
+        pageContainers.forEach(container => {
+            const pageNum = container.getAttribute('data-page-num');
+            const pageImage = container.querySelector('.pdf-page-image');
+            if (!pageImage) { console.error(`Image element not found for page container ${pageNum}.`); return; }
+    
+            // Initialize dataset state for this page
+            container.dataset.zoom = '1.0';
+            container.dataset.panX = '0';
+            container.dataset.panY = '0';
+    
+            // --- Zoom Listener (Ctrl + Mouse Wheel) ---
+            container.addEventListener('wheel', (event) => {
+                 if (event.ctrlKey) {
+                    event.preventDefault(); // Prevent default page scrolling
+                    const currentZoom = parseFloat(container.dataset.zoom || 1.0);
+                    let currentPanX = parseFloat(container.dataset.panX || 0); // Use let as it will be updated
+                    let currentPanY = parseFloat(container.dataset.panY || 0);
+                    const rect = container.getBoundingClientRect();
+    
+                    // Check if image dimensions are available
+                    if (!rect.width || !pageImage.naturalWidth || !pageImage.naturalHeight) {
+                        console.warn(`Zoom ignored on page ${pageNum}: Invalid dimensions or image not ready.`);
+                        return;
+                     }
+    
+                    // Calculate mouse position relative to the container
+                    const mouseX = event.clientX - rect.left;
+                    const mouseY = event.clientY - rect.top;
+    
+                    // Calculate where the mouse pointer is relative to the image's content
+                    const mouseXOnImage = mouseX - currentPanX;
+                    const mouseYOnImage = mouseY - currentPanY;
+    
+                    // Determine zoom direction and calculate new zoom level
+                    const delta = event.deltaY > 0 ? -1 : 1; // Scroll down = zoom out (-1)
+                    const zoomFactor = Math.exp(delta * ZOOM_SENSITIVITY * 10);
+                    let newZoom = currentZoom * zoomFactor;
+                    newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, newZoom)); // Clamp zoom level
+    
+                    // Calculate the necessary pan adjustment to keep the point under the cursor fixed
+                    let targetPanX = currentPanX;
+                    let targetPanY = currentPanY;
+                    if (currentZoom > 0 && newZoom > 0) { // Avoid division by zero
+                        targetPanX = mouseX - (mouseXOnImage * (newZoom / currentZoom));
+                        targetPanY = mouseY - (mouseYOnImage * (newZoom / currentZoom));
+                    }
+    
+                    // Update zoom state in the dataset *before* applying the transform
+                    container.dataset.zoom = newZoom;
+    
+                    // Apply the transform using the new zoom and calculated pan target.
+                    // The function will clamp the pan values and update the dataset panX/panY.
+                    applyClampedTransform(container, targetPanX, targetPanY);
+                }
+                 // Allow default scroll if Ctrl not pressed
+            }, { passive: false }); // Need passive: false for preventDefault
+    
+    
+            // --- Annotation Click Listener (on pageImage) ---
+            pageImage.addEventListener('click', function(event) {
+                // 1. Check if an annotation tool is selected
+                if (!currentTool) {
+                    // console.log("Click ignored: No tool selected."); // Optional log
+                    return;
+                }
+    
+                console.log(`Processing click for page ${pageNum} with tool ${currentTool}...`);
+    
+                // 2. Read current view state from the container's dataset
+                const currentZoom = parseFloat(container.dataset.zoom || 1.0);
+                const currentPanX = parseFloat(container.dataset.panX || 0);
+                const currentPanY = parseFloat(container.dataset.panY || 0);
+    
+                // 3. Get necessary dimensions and calculate click coordinates
+                const rect = container.getBoundingClientRect();
+                if (!pageImage.naturalWidth || !pageImage.naturalHeight) {
+                    console.error(`Annotation aborted on page ${pageNum}: Invalid image dimensions.`);
+                    return;
+                }
+                const clickXRelContainer = event.clientX - rect.left;
+                const clickYRelContainer = event.clientY - rect.top;
+    
+                // Check for invalid zoom before division
+                if (currentZoom <= 0) {
+                    console.error(`Annotation aborted on page ${pageNum}: Invalid zoom level (${currentZoom}).`);
+                    return;
+                }
+                // Calculate coordinates relative to the original, unscaled image
+                const naturalX = (clickXRelContainer - currentPanX) / currentZoom;
+                const naturalY = (clickYRelContainer - currentPanY) / currentZoom;
+    
+                console.log(` -> Natural Coords: (${naturalX.toFixed(1)}, ${naturalY.toFixed(1)})`);
+    
+                // Optional: Warn if click is outside image bounds (doesn't prevent sending)
+                if (naturalX < 0 || naturalY < 0 || naturalX > pageImage.naturalWidth || naturalY > pageImage.naturalHeight) {
+                     console.warn("Annotation click occurred outside the calculated natural image bounds.");
+                }
+    
+                // 4. Send Annotation/Removal Request via AJAX ---
+                fetch("{% url 'add_annotation' %}", {
+                     method: 'POST',
+                     headers: {
+                         'Content-Type': 'application/json',
+                         'X-CSRFToken': csrfToken // Make sure CSRF token is available
+                     },
+                     body: JSON.stringify({
+                         page_num: parseInt(pageNum),
+                         x: naturalX, // Send coordinates relative to natural image size
+                         y: naturalY,
+                         type: currentTool // Send the currently selected tool's type
+                     })
+                 })
+                 // Step 1: Handle HTTP response
+                 .then(response => {
+                     if (!response.ok) { // Check for 4xx/5xx errors
+                         // Attempt to parse error details from JSON body
+                         return response.json()
+                             .then(err => { throw new Error(err.message || `HTTP ${response.status} ${response.statusText}`); })
+                             .catch(() => { throw new Error(`HTTP ${response.status} ${response.statusText}`); }); // Fallback if body isn't JSON
+                     }
+                     // Check content type for successful responses
+                     const contentType = response.headers.get("content-type");
+                     if (contentType && contentType.includes("application/json")) {
+                         return response.json(); // Parse JSON body
+                     }
+                     // Handle unexpected success response format
+                     console.warn("Received non-JSON success response from add_annotation.");
+                     return { status: 'ok', action: 'unknown', counts: {} }; // Return default structure
+                 })
+                 // Step 2: Process parsed data
+                 .then(data => {
+                     // Check internal status from backend data
+                     if (data && data.status === 'ok') {
+                        console.log('Backend action successful:', data);
+    
+                        // Perform action based on backend response
+                        if (data.action === 'removed') {
+                            console.log(` -> Action: Remove ID ${data.removed_id}`);
+                            // Find the marker element by its unique ID
+                            const markerToRemove = container.querySelector(`.feedback-annotation-mark[data-annotation-id="${data.removed_id}"]`);
+                            if (markerToRemove) {
+                                markerToRemove.remove(); // Remove from DOM
+                                console.log(" -> Frontend marker removed.");
+                            } else {
+                                // Log if the marker wasn't found - might indicate state inconsistency
+                                console.warn(" -> Frontend marker to remove not found (ID:", data.removed_id, "). State might need refresh.");
+                            }
+                            // NOTE: Tool remains selected after removal, allowing further clicks.
+    
+                        } else if (data.action === 'added') {
+                            console.log(` -> Action: Add ID ${data.added_id}`);
+                            // Check if backend provided data for the new annotation
+                            if (data.added_annotation) {
+                                // Create the new marker element
+                                const newMark = createMarkerElement(container, data.added_annotation);
+                                if (newMark) {
+                                    container.appendChild(newMark); // Add to DOM
+                                    console.log(" -> Frontend marker added.");
+    
+                                    // --- TOOL REMAINS SELECTED ---
+                                    // No auto-deselection code here to allow continuous clicking.
+    
+                                } else {
+                                     console.error(" -> Failed to create frontend marker for added annotation.");
+                                }
+                            } else {
+                                // This shouldn't happen if backend logic is correct
+                                console.error("Backend indicated 'added' but didn't return annotation data.");
+                            }
+    
+                        } else {
+                             // Handle unexpected action string from backend
+                             console.warn("Unknown or missing action from backend:", data.action || 'N/A');
+                        }
+    
+                        // Update Counts Display (always use counts from backend response)
+                        if (data.counts) {
+                           document.getElementById('count-tick').textContent = data.counts.tick ?? 0;
+                           document.getElementById('count-blue_mark').textContent = data.counts.blue_mark ?? 0;
+                           document.getElementById('count-cross').textContent = data.counts.cross ?? 0;
+                        } else { console.warn("Counts object missing in response, UI counts not updated."); }
+    
+                     } else { // Handle backend reporting an error status in the data
+                         const message = data ? (data.message || 'Unknown backend error status') : 'Empty or invalid data received';
+                         console.error('Error reported by backend:', message);
+                         alert('Error processing annotation: ' + message); // Show error to user
+                     }
+                 })
+                 // Step 3: Catch overall errors (network, parsing, etc.)
+                 .catch(error => {
+                     console.error('Error during annotation fetch/processing:', error);
+                     alert('Failed to process annotation: ' + error.message); // Show error to user
+                 });
+            }); // End annotation click listener
+    
+    
+            // --- Image Load Handling ---
+            const setupPage = () => {
+                 if (pageImage.naturalWidth > 0 && pageImage.naturalHeight > 0) {
+                     console.log(`Image ${pageNum} loaded. Natural: ${pageImage.naturalWidth}x${pageImage.naturalHeight}`);
+                     applyClampedTransform(container, 0, 0); // Apply initial transform (scale 1, pan 0,0)
+                     container.style.cursor = 'default';     // Set initial cursor style
+                     pageImage.style.cursor = 'default';
+    
+                     // Render Initial Annotations from embedded JSON data
+                     try {
+                        const initialAnnotationsDataElement = document.getElementById('initial-annotations-data');
+                        if (!initialAnnotationsDataElement) {
+                            console.error("Initial annotations data element (#initial-annotations-data) not found in HTML.");
+                            return; // Cannot proceed without data
+                        }
+                        // Parse the JSON safely, defaulting to empty array on error
+                        let initialAnnotations = [];
+                        try {
+                             initialAnnotations = JSON.parse(initialAnnotationsDataElement.textContent || '[]');
+                        } catch (parseError) {
+                            console.error("Error parsing initial annotations JSON:", parseError, initialAnnotationsDataElement.textContent);
+                        }
+    
+                        console.log(`Rendering ${initialAnnotations.length} initial annotations for page ${pageNum}`);
+                        let renderedCount = 0;
+                        initialAnnotations.forEach(annotation => {
+                            // Ensure annotation belongs to the current page before rendering
+                            if (annotation.page_num === parseInt(pageNum)) {
+                                 const mark = createMarkerElement(container, annotation);
+                                 if (mark) {
+                                     container.appendChild(mark);
+                                     renderedCount++;
+                                 }
+                            }
+                        });
+                        console.log(` -> Rendered ${renderedCount} markers for this page.`);
+                     } catch (e) {
+                         console.error("Unexpected error during initial annotation rendering:", e);
+                     }
+    
+                 } else {
+                     // Handle images loading with invalid dimensions
+                     console.error(`Image ${pageNum} loaded but has invalid dimensions (w=${pageImage.naturalWidth}, h=${pageImage.naturalHeight}). Hiding container.`);
+                     container.style.display = 'none'; // Hide the container if image is unusable
+                 }
+            };
+    
+            // Check image load status and call setupPage appropriately
+            if (pageImage.complete && pageImage.naturalWidth > 0) {
+                 // Already loaded and valid
+                 setTimeout(setupPage, 0); // Use setTimeout for stability after DOM ready
+            } else if (pageImage.complete) {
+                 // Loaded but invalid dimensions
+                 setupPage(); // Run setup to handle the error display
+            } else {
+                 // Not loaded yet, set up event listeners
+                 pageImage.onload = setupPage;
+                 pageImage.onerror = () => {
+                     console.error(`Failed to load image ${pageNum}. Hiding container.`);
+                     container.style.display = 'none'; // Hide container on image load error
+                 };
+            }
+    
+        }); // End pageContainers.forEach
+    
+    
+        // --- Arrow Key Panning Listener (on Document) ---
+        document.addEventListener('keydown', function(event) {
+            let deltaX = 0;
+            let deltaY = 0;
+            // Determine direction and delta based on which arrow key was pressed
+            switch (event.key) {
+                case "ArrowUp": deltaY = PAN_STEP; break;
+                case "ArrowDown": deltaY = -PAN_STEP; break;
+                case "ArrowLeft": deltaX = PAN_STEP; break;
+                case "ArrowRight": deltaX = -PAN_STEP; break;
+                default: return; // Ignore keys other than arrows
+            }
+            event.preventDefault(); // Prevent default page scrolling by arrow keys
+    
+            // Find the target page container (most centered vertically in viewport)
+            let targetContainer = null;
+            let minCenterDist = Infinity;
+            const viewportCenterY = window.innerHeight / 2;
+    
+            for (const container of pageContainers) {
+                 const rect = container.getBoundingClientRect();
+                 // Check if the container is vertically within the viewport
+                 if (rect.bottom > 0 && rect.top < window.innerHeight) {
+                     const containerCenterY = rect.top + rect.height / 2;
+                     const dist = Math.abs(containerCenterY - viewportCenterY);
+                     // If this one is closer to the center, make it the target
+                     if (dist < minCenterDist) {
+                         minCenterDist = dist;
+                         targetContainer = container;
+                     }
+                 }
+            }
+            // Fallback: If no container was strictly centered, use the first visible one
+            if (!targetContainer) {
+                 for (const container of pageContainers) {
+                     const rect = container.getBoundingClientRect();
+                      if (rect.bottom > 0 && rect.top < window.innerHeight) {
+                          targetContainer = container;
+                          console.log("Arrow pan: No centered container found, using first visible.");
+                          break;
+                      }
+                 }
+            }
+    
+            // If a target container was identified, apply the pan
+            if (targetContainer) {
+                // Read current pan state from the target's dataset
+                const currentPanX = parseFloat(targetContainer.dataset.panX || 0);
+                const currentPanY = parseFloat(targetContainer.dataset.panY || 0);
+                // Calculate the new target position
+                const newPanX = currentPanX + deltaX;
+                const newPanY = currentPanY + deltaY;
+                // Apply the transform (this function handles clamping, dataset update, etc.)
+                applyClampedTransform(targetContainer, newPanX, newPanY);
+            } else {
+                 console.log("Arrow key pressed, but no target container is currently visible.");
+            }
+        }); // End keydown listener
+    
+    }); // End DOMContentLoaded
+    </script>
+    {% endblock %}

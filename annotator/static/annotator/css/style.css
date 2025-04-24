@@ -1,19 +1,61 @@
-/* In your base.html <style> block or linked style.css */
+/* --- Existing Styles --- */
+body { padding-top: 60px; }
+.annotation-controls { margin-bottom: 1rem; }
+.annotation-button { margin-right: 5px; font-size: 1.5rem; }
+.annotation-button.active { border: 2px solid blue; border-radius: 5px;}
+.annotation-counts span { margin-right: 15px; font-weight: bold; }
+
+/* --- Styles for Zoom/Pan --- */
 .pdf-page-container {
-    position: relative; /* ESSENTIAL for absolute positioning of children */
+    position: relative; /* Needed for absolute positioning of annotations AND the image */
     margin-bottom: 1rem;
     border: 1px solid #ccc;
-    display: inline-block;
-    background-color: #eee;
+    display: inline-block; /* Keep container size constrained */
+    background-color: #f8f9fa; /* Lighter background */
+    overflow: hidden; /* CRITICAL: Hide parts of image outside the container bounds */
+    cursor: grab; /* Default cursor indicating pannable */
+    /* Optional: Set a max-width if needed, or let it be determined by content */
+    /* max-width: 100%; */
+    line-height: 0; /* Prevent extra space */
+    vertical-align: top; /* Align containers nicely if they wrap */
 }
 
-/* Optional: Ensure feedback mark is visible */
-.feedback-annotation-mark { /* Add a class for easier selection/styling */
-    position: absolute;
-    border-radius: 50%;
-    pointer-events: none; /* Make it non-interactive */
-    text-align: center;
-    font-size: 12px; /* Or adjust */
-    z-index: 10; /* Make sure it's on top */
-    /* Background colors/text set by JS */
+.pdf-page-image {
+    display: block; /* Prevent extra space below image */
+    /* --- KEY CHANGES for Zoom/Pan --- */
+    /* Remove max-width: 100% and height: auto - size will be controlled by transform */
+    width: 100%; /* Start at 100% width of container */
+    height: auto;
+    transform-origin: 0 0; /* Zoom/scale from the top-left corner */
+    transition: transform 0.1s ease-out; /* Smooth zoom transition (optional) */
+    /* No position: absolute needed here if using transform */
+    cursor: crosshair; /* Default for annotation */
 }
+
+.pdf-page-container.panning .pdf-page-image,
+.pdf-page-container.panning {
+    cursor: grabbing; /* Cursor while panning */
+}
+/* ... other styles ... */
+
+.feedback-annotation-mark {
+    position: absolute;
+    /* left & top will be set in PIXELS by JS */
+    width: 20px;  /* Size of the icon */
+    height: 20px;
+    pointer-events: none; /* Don't interfere with clicks */
+    z-index: 10;
+    /* Keep this transform to center the icon itself over the calculated coordinate */
+    transform: translate(-50%, -50%);
+    /* Ensure image inside fills the marker div if needed */
+    display: flex; /* Optional: helps center image if needed */
+    align-items: center;
+    justify-content: center;
+}
+.feedback-annotation-mark img {
+    display: block;
+    max-width: 100%; /* Ensure icon fits */
+    max-height: 100%;
+}
+
+/* ... rest of styles ... */
